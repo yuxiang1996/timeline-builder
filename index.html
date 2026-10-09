@@ -67,6 +67,8 @@
   .seg-inputs { display: flex; gap: 8px; flex-wrap: wrap; }
   .seg-inputs input { width: 84px; }
   .seg-inputs select { flex: 1 1 110px; min-width: 0; }
+  .seg-inputs input[type=date] { flex: 0 1 148px; width: 148px; min-width: 0; padding-right: 6px; }
+  .seg-inputs input[type=date]:disabled { opacity: .45; }
   .seg.ext { background: var(--soft); border-radius: 10px; padding: 10px 12px; border-top: 0; margin-top: 6px; }
 
   .switch-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 4px; border-top: 1px dashed var(--line); margin-top: 4px; }
@@ -215,6 +217,7 @@
     return `<div class="seg-inputs" ${attrs}>
       <input type="number" inputmode="numeric" min="0" step="1" placeholder="—" value="${seg.v}" data-k="v" aria-label="Duration">
       ${unitSelect(seg)}${basisSelect(seg)}
+      <input type="date" data-k="date" aria-label="End date">
     </div>`;
   }
 
@@ -257,9 +260,54 @@
     const s = state[row.dataset.side];
     const seg = 'ext' in row.dataset ? s.ext : s.segs[s.type][Number(row.dataset.i)];
     const k = t.dataset.k;
+    if (k === 'date') return setByDate(row, seg, t.value);
     seg[k] = k === 'v' ? (t.value === '' ? '' : String(Math.max(0, Math.round(Number(t.value))))) : t.value;
     if (k === 'unit') { if (seg.unit !== 'days') seg.basis = 'cal'; renderPanel(row.dataset.side); }
     update();
+  });
+  // Work a segment's duration back out from the end date picked for it.
+  function setByDate(row, seg, value) {
+    const side = row.dataset.side, c = compute(side);
+    const from = 'ext' in row.dataset ? c.completion : (c.points[Number(row.dataset.i)] || {}).date;
+    if (!from || !value) return;
+    const to = parse(value), diff = dayDiff(from, to);
+    if (diff < 0) return syncDates(side);
+    const unitBefore = seg.unit;
+    if (seg.unit === 'months') {
+      const n = (to.getFullYear() - from.getFullYear()) * 12 + to.getMonth() - from.getMonth();
+      if (iso(addMonths(from, n)) === value) seg.v = String(n); else { seg.unit = 'days'; seg.basis = 'cal'; seg.v = String(diff); }
+    } else if (seg.unit === 'weeks') {
+      if (diff % 7 === 0) seg.v = String(diff / 7); else { seg.unit = 'days'; seg.basis = 'cal'; seg.v = String(diff); }
+    } else if (seg.basis === 'work') {
+      let n = 0; for (let d = addDays(from, 1); d <= to; d = addDays(d, 1)) if (isWorkday(d)) n++;
+      seg.v = String(n);
+    } else seg.v = String(diff);
+    if (seg.unit !== unitBefore) renderPanel(side);
+    else row.querySelector('[data-k=v]').value = seg.v;
+    update();
+  }
+
+  // Show each step's end date beside its duration; disabled until the step's start is known.
+  function syncDates(side) {
+    const s = state[side], c = compute(side);
+    document.querySelectorAll(`#panel-${side} .seg-inputs`).forEach(row => {
+      const inp = row.querySelector('[data-k=date]');
+      if (inp === document.activeElement) return;
+      let from, end;
+      if ('ext' in row.dataset) { from = c.completion; end = c.extEnd; }
+      else {
+        const i = Number(row.dataset.i);
+        from = c.points[i] && c.points[i].date;
+        end = s.segs[s.type][i].v !== '' && c.points[i + 1] ? c.points[i + 1].date : null;
+      }
+      inp.disabled = !from;
+      inp.min = from ? iso(from) : '';
+      inp.value = end ? iso(end) : '';
+    });
+  }
+
+  document.addEventListener('focusout', e => {
+    if (e.target.matches('[data-k=date]')) setTimeout(() => { syncDates('sale'); syncDates('purchase'); });
   });
   document.addEventListener('change', e => {
     const t = e.target;
@@ -434,9 +482,9 @@
     document.getElementById('summary').innerHTML = out.map(s => `<span>${s}</span>`).join('');
   }
 
-  function update() { save(); draw(); }
+  function update() { save(); syncDates('sale'); syncDates('purchase'); draw(); }
   window.addEventListener('resize', draw);
-  renderPanel('sale'); renderPanel('purchase'); draw();
+  renderPanel('sale'); renderPanel('purchase'); update();
 })();
 </script>
 </body>
