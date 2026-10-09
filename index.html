@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Timeline Builder</title>
+<style>
+  :root {
+    --ink: #1c2321;
+    --muted: #6b7471;
+    --line: #dfe3e1;
+    --bg: #f6f5f1;
+    --card: #ffffff;
+    --sale: #0f6b5c;
+    --sale-soft: #e3f1ee;
+    --buy: #b07a12;
+    --buy-soft: #fbf1dc;
+    --gap: #b3402e;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  .actions { display: flex; gap: 8px; }
+  button.ghost {
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    padding: 8px 14px; border-radius: 999px; font: inherit; font-size: 14px; cursor: pointer;
+  }
+  button.ghost:hover { border-color: #b9c0bd; }
+
+  .chart-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 0 4px; margin-bottom: 16px; }
+  .chart-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  #chart { display: block; }
+  .summary { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 10px 18px 12px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+  .summary b { color: var(--ink); font-weight: 600; }
+
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 820px) { .panels { grid-template-columns: 1fr; } }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; border-top: 4px solid var(--c); }
+  .panel.sale { --c: var(--sale); --soft: var(--sale-soft); }
+  .panel.purchase { --c: var(--buy); --soft: var(--buy-soft); }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .panel-head h2 { margin: 0; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--c); }
+
+  .seg-toggle { display: inline-flex; background: #f0f1ef; border-radius: 999px; padding: 3px; }
+  .seg-toggle button {
+    border: 0; background: transparent; font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 999px; cursor: pointer; color: var(--muted);
+  }
+  .seg-toggle button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 600; }
+
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
+  .field label { font-size: 14px; color: var(--muted); }
+  input, select {
+    font: inherit; font-size: 16px; color: var(--ink); background: #fff;
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px;
+  }
+  input:focus, select:focus { outline: 2px solid var(--c); outline-offset: -1px; border-color: transparent; }
+
+  .seg { padding: 10px 0; border-top: 1px dashed var(--line); }
+  .seg-name { font-size: 14px; margin-bottom: 6px; }
+  .seg-name .arrow { color: var(--muted); padding: 0 4px; }
+  .seg-inputs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .seg-inputs input { width: 84px; }
+  .seg-inputs select { flex: 1 1 110px; min-width: 0; }
+  .seg.ext { background: var(--soft); border-radius: 10px; padding: 10px 12px; border-top: 0; margin-top: 6px; }
+
+  .switch-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 4px; border-top: 1px dashed var(--line); margin-top: 4px; }
+  .switch { position: relative; width: 46px; height: 26px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .switch span { position: absolute; inset: 0; background: #cfd4d2; border-radius: 999px; transition: .15s; cursor: pointer; }
+  .switch span::after { content: ""; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .switch input:checked + span { background: var(--c); }
+  .switch input:checked + span::after { transform: translateX(20px); }
+
+  .note { font-size: 12px; color: var(--muted); margin-top: 18px; }
+
+  @media print {
+    body { background: #fff; }
+    .panels, .actions, .note { display: none; }
+    .chart-card { border: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Sale &amp; Purchase Timeline</h1>
+    <div class="actions">
+      <button class="ghost" id="print">Print / PDF</button>
+      <button class="ghost" id="reset">Clear all</button>
+    </div>
+  </header>
+
+  <div class="chart-card">
+    <div class="chart-scroll"><svg id="chart" role="img" aria-label="Sale and purchase timeline"></svg></div>
+    <div class="summary" id="summary"></div>
+  </div>
+
+  <div class="panels">
+    <section class="panel sale" id="panel-sale"></section>
+    <section class="panel purchase" id="panel-purchase"></section>
+  </div>
+
+  <p class="note">Working days skip weekends and Singapore public holidays (2026–2027). Leave a box blank and the timeline stops at that step until you fill it in.</p>
+</div>
+
+<script>
+(() => {
+  // ---------- Templates ----------
+  const TEMPLATES = {
+    hdb: {
+      label: 'HDB',
+      start: 'Issue OTP',
+      segs: [
+        { to: 'Exercise OTP',       unit: 'days',  basis: 'cal' },
+        { to: 'Resale Application', unit: 'days',  basis: 'cal' },
+        { to: 'HDB Acceptance',     unit: 'days',  basis: 'work' },
+        { to: 'Completion',         unit: 'weeks', basis: 'cal' },
+      ],
+    },
+    private: {
+      label: 'Private',
+      start: 'Issue OTP',
+      segs: [
+        { to: 'Exercise OTP', unit: 'days',  basis: 'cal' },
+        { to: 'Completion',   unit: 'weeks', basis: 'cal' },
+      ],
+    },
+  };
+  const EXT_LABEL = 'End of extension';
+
+  // ---------- SG public holidays (Sunday holidays already moved to Monday) ----------
+  const HOLIDAYS = new Set([
+    '2026-01-01','2026-02-17','2026-02-18','2026-04-03','2026-05-01','2026-05-27',
+    '2026-06-01','2026-08-10','2026-11-09','2026-12-25',
+    '2027-01-01','2027-02-08','2027-03-10','2027-03-26','2027-05-17','2027-05-20',
+    '2027-08-09','2027-10-28',
+  ]);
+
+  // ---------- Date helpers (local dates, no timezone drift) ----------
+  const pad2 = n => String(n).padStart(2, '0');
+  const iso = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const parse = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+  const today = () => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
+  const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const addMonths = (d, n) => {
+    const target = new Date(d.getFullYear(), d.getMonth() + n, 1);
+    const last = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    return new Date(target.getFullYear(), target.getMonth(), Math.min(d.getDate(), last));
+  };
+  const isWorkday = d => d.getDay() !== 0 && d.getDay() !== 6 && !HOLIDAYS.has(iso(d));
+  const addWorkdays = (d, n) => { let c = d, k = 0; while (k < n) { c = addDays(c, 1); if (isWorkday(c)) k++; } return c; };
+  const dayDiff = (a, b) => Math.round((b - a) / 86400000);
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fmt = d => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+
+  function advance(date, seg) {
+    const n = Number(seg.v);
+    if (seg.unit === 'months') return addMonths(date, n);
+    if (seg.unit === 'weeks') return addDays(date, n * 7);
+    return seg.basis === 'work' ? addWorkdays(date, n) : addDays(date, n);
+  }
+  function durLabel(seg) {
+    const n = Number(seg.v);
+    const unit = seg.unit === 'days' ? (n === 1 ? 'day' : 'days') : seg.unit === 'weeks' ? (n === 1 ? 'week' : 'weeks') : (n === 1 ? 'month' : 'months');
+    return `${n}${seg.unit === 'days' && seg.basis === 'work' ? ' working' : ''} ${unit}`;
+  }
+  function spanLabel(days) {
+    days = Math.abs(days);
+    if (days === 0) return 'same day';
+    const w = Math.floor(days / 7), r = days % 7;
+    const parts = [];
+    if (w) parts.push(`${w} week${w > 1 ? 's' : ''}`);
+    if (r) parts.push(`${r} day${r > 1 ? 's' : ''}`);
+    return parts.join(' ') + (w ? ` (${days} days)` : '');
+  }
+
+  // ---------- State ----------
+  const KEY = 'timeline-builder-v1';
+  const blankSegs = type => TEMPLATES[type].segs.map(s => ({ v: '', unit: s.unit, basis: s.basis }));
+  const blankSide = () => ({
+    type: 'hdb',
+    start: iso(today()),
+    segs: { hdb: blankSegs('hdb'), private: blankSegs('private') },
+    ext: { on: false, v: '', unit: 'months', basis: 'cal' },
+  });
+  const defaults = () => {
+    const s = { sale: blankSide(), purchase: blankSide() };
+    s.purchase.type = 'private';
+    return s;
+  };
+  let state;
+  try { state = JSON.parse(localStorage.getItem(KEY)) || defaults(); } catch { state = defaults(); }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} };
+
+  // ---------- Controls ----------
+  function unitSelect(seg) {
+    return `<select data-k="unit">
+      ${['days','weeks','months'].map(u => `<option value="${u}"${seg.unit === u ? ' selected' : ''}>${u[0].toUpperCase() + u.slice(1)}</option>`).join('')}
+    </select>`;
+  }
+  function basisSelect(seg) {
+    if (seg.unit !== 'days') return '';
+    return `<select data-k="basis">
+      <option value="cal"${seg.basis === 'cal' ? ' selected' : ''}>Calendar days</option>
+      <option value="work"${seg.basis === 'work' ? ' selected' : ''}>Working days</option>
+    </select>`;
+  }
+  function segRow(seg, attrs) {
+    return `<div class="seg-inputs" ${attrs}>
+      <input type="number" inputmode="numeric" min="0" step="1" placeholder="—" value="${seg.v}" data-k="v" aria-label="Duration">
+      ${unitSelect(seg)}${basisSelect(seg)}
+    </div>`;
+  }
+
+  function renderPanel(side) {
+    const s = state[side], t = TEMPLATES[s.type];
+    const el = document.getElementById('panel-' + side);
+    let prev = t.start;
+    const segsHtml = t.segs.map((tpl, i) => {
+      const html = `<div class="seg">
+        <div class="seg-name">${prev}<span class="arrow">→</span>${tpl.to}</div>
+        ${segRow(s.segs[s.type][i], `data-side="${side}" data-i="${i}"`)}
+      </div>`;
+      prev = tpl.to;
+      return html;
+    }).join('');
+    el.innerHTML = `
+      <div class="panel-head">
+        <h2>${side === 'sale' ? 'Sale' : 'Purchase'}</h2>
+        <div class="seg-toggle" role="group" aria-label="Property type">
+          ${Object.entries(TEMPLATES).map(([k, v]) => `<button data-side="${side}" data-type="${k}" class="${s.type === k ? 'on' : ''}">${v.label}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label for="start-${side}">${t.start} date</label>
+        <input type="date" id="start-${side}" data-side="${side}" data-start value="${s.start}"></div>
+      ${segsHtml}
+      <div class="switch-row">
+        <label for="ext-${side}" style="font-size:14px">Extension after completion</label>
+        <label class="switch"><input type="checkbox" id="ext-${side}" data-side="${side}" data-ext-toggle ${s.ext.on ? 'checked' : ''}><span></span></label>
+      </div>
+      ${s.ext.on ? `<div class="seg ext"><div class="seg-name">Completion<span class="arrow">→</span>${EXT_LABEL}</div>
+        ${segRow(s.ext, `data-side="${side}" data-ext`)}</div>` : ''}
+    `;
+  }
+
+  document.addEventListener('input', e => {
+    const t = e.target;
+    if (t.matches('[data-start]')) { state[t.dataset.side].start = t.value || iso(today()); return update(); }
+    const row = t.closest('.seg-inputs');
+    if (!row) return;
+    const s = state[row.dataset.side];
+    const seg = 'ext' in row.dataset ? s.ext : s.segs[s.type][Number(row.dataset.i)];
+    const k = t.dataset.k;
+    seg[k] = k === 'v' ? (t.value === '' ? '' : String(Math.max(0, Math.round(Number(t.value))))) : t.value;
+    if (k === 'unit') { if (seg.unit !== 'days') seg.basis = 'cal'; renderPanel(row.dataset.side); }
+    update();
+  });
+  document.addEventListener('change', e => {
+    const t = e.target;
+    if (t.matches('[data-ext-toggle]')) { state[t.dataset.side].ext.on = t.checked; renderPanel(t.dataset.side); update(); }
+  });
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-type]');
+    if (b) { state[b.dataset.side].type = b.dataset.type; renderPanel(b.dataset.side); update(); }
+  });
+  let armed = false;
+  document.getElementById('reset').addEventListener('click', e => {
+    if (!armed) { armed = true; e.target.textContent = 'Tap again to clear'; setTimeout(() => { armed = false; e.target.textContent = 'Clear all'; }, 3000); return; }
+    armed = false; e.target.textContent = 'Clear all';
+    state = defaults(); renderPanel('sale'); renderPanel('purchase'); update();
+  });
+  document.getElementById('print').addEventListener('click', () => window.print());
+
+  // ---------- Timeline computation ----------
+  function compute(side) {
+    const s = state[side], t = TEMPLATES[s.type];
+    let d = parse(s.start);
+    const points = [{ label: t.start, date: d }];
+    const segments = [];
+    let pending = null;
+    for (let i = 0; i < t.segs.length; i++) {
+      const seg = s.segs[s.type][i];
+      if (seg.v === '') { pending = t.segs[i].to; break; }
+      const next = advance(d, seg);
+      segments.push({ from: d, to: next, label: durLabel(seg), dashed: false });
+      points.push({ label: t.segs[i].to, date: next });
+      d = next;
+    }
+    const completion = pending ? null : d;
+    let extEnd = null;
+    if (completion && s.ext.on && s.ext.v !== '') {
+      extEnd = advance(completion, s.ext);
+      segments.push({ from: completion, to: extEnd, label: durLabel(s.ext) + ' extension', dashed: true });
+      points.push({ label: EXT_LABEL, date: extEnd, hollow: true });
+    } else if (completion && s.ext.on) {
+      pending = EXT_LABEL;
+    }
+    return { points, segments, pending, completion, extEnd, last: d };
+  }
+
+  // ---------- Chart ----------
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.getElementById('chart');
+  function el(tag, attrs, text) {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    svg.appendChild(n);
+    return n;
+  }
+  const textW = (s, size) => s.length * size * 0.56;
+
+  // Push labels onto extra rows when they would overlap their neighbour.
+  function stagger(items, gap) {
+    const rows = [];
+    for (const it of items.sort((a, b) => a.x - b.x)) {
+      let r = 0;
+      while (rows[r] != null && it.x - it.w / 2 < rows[r] + gap) r++;
+      rows[r] = it.x + it.w / 2;
+      it.row = r;
+    }
+    return items;
+  }
+
+  function draw() {
+    const sale = compute('sale'), buy = compute('purchase');
+    const wrap = svg.parentElement;
+    const W = Math.max(760, wrap.clientWidth);
+    const L = 156, R = 80;
+    const H = 470;
+    const yS = 150, yP = 320;
+    svg.setAttribute('width', W); svg.setAttribute('height', H);
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.innerHTML = '';
+
+    const all = [...sale.points, ...buy.points].map(p => p.date);
+    let min = new Date(Math.min(...all)), max = new Date(Math.max(...all));
+    if (dayDiff(min, max) < 30) max = addDays(min, 30);
+    const span = max - min;
+    const x = d => L + ((d - min) / span) * (W - L - R);
+    const clampX = (cx, w) => Math.min(Math.max(cx, w / 2 + 4), W - w / 2 - 4);
+
+    // month grid
+    let m = new Date(min.getFullYear(), min.getMonth() + 1, 1);
+    const months = dayDiff(min, max) / 30;
+    const stepM = months > 18 ? 3 : months > 9 ? 2 : 1;
+    while (m <= max) {
+      const mx = x(m);
+      el('line', { x1: mx, x2: mx, y1: 40, y2: H - 34, stroke: '#eef0ee', 'stroke-width': 1 });
+      el('text', { x: mx, y: H - 14, 'text-anchor': 'middle', 'font-size': 12, fill: '#9aa29f' },
+        `${MONTHS[m.getMonth()]} ${String(m.getFullYear()).slice(2)}`);
+      m = new Date(m.getFullYear(), m.getMonth() + stepM, 1);
+    }
+
+    function row(data, y, color, title, labelsAbove) {
+      const dir = labelsAbove ? -1 : 1;
+      el('text', { x: 16, y: y + 6, 'font-size': 14, 'font-weight': 700, 'letter-spacing': '0.1em', fill: color }, title);
+
+      // segments
+      for (const s of data.segments) {
+        el('line', { x1: x(s.from), x2: x(s.to), y1: y, y2: y, stroke: color, 'stroke-width': 4,
+          'stroke-linecap': 'round', 'stroke-dasharray': s.dashed ? '2 9' : 'none' });
+      }
+      // pending stub
+      if (data.pending) {
+        const sx = x(data.last);
+        el('line', { x1: sx, x2: sx + 46, y1: y, y2: y, stroke: '#c5cbc8', 'stroke-width': 3, 'stroke-dasharray': '4 5' });
+        el('text', { x: sx + 52, y: y + 4, 'font-size': 12, fill: '#9aa29f' }, `→ ${data.pending}?`);
+      }
+      // duration labels (opposite side of milestone labels)
+      const durs = stagger(data.segments.map(s => {
+        const w = textW(s.label, 13);
+        return { x: clampX((x(s.from) + x(s.to)) / 2, w), w, s };
+      }), 6);
+      for (const d of durs) {
+        const ty = y - dir * (24 + d.row * 18) + (labelsAbove ? 4 : 0);
+        el('text', { x: d.x, y: ty, 'text-anchor': 'middle', 'font-size': 13, fill: color, 'font-style': d.s.dashed ? 'italic' : 'normal' }, d.s.label);
+      }
+      // milestones
+      const ms = stagger(data.points.map(p => {
+        const w = Math.max(textW(p.label, 13), textW(fmt(p.date), 12)) + 6;
+        return { x: clampX(x(p.date), w), px: x(p.date), w, p };
+      }), 8);
+      for (const mk of ms) {
+        const off = 22 + mk.row * 38;
+        const ly = labelsAbove ? y - off - 16 : y + off + 6;
+        el('line', { x1: mk.px, x2: mk.px, y1: y, y2: labelsAbove ? ly + 20 : ly - 12, stroke: color, 'stroke-width': 1, opacity: 0.35 });
+        el('circle', { cx: mk.px, cy: y, r: 6, fill: mk.p.hollow ? '#fff' : color, stroke: color, 'stroke-width': 2.5 });
+        el('text', { x: mk.x, y: ly, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 600, fill: '#1c2321' }, mk.p.label);
+        el('text', { x: mk.x, y: ly + 16, 'text-anchor': 'middle', 'font-size': 12, fill: '#6b7471' }, fmt(mk.p.date));
+      }
+    }
+    row(sale, yS, '#0f6b5c', 'SALE', true);
+    row(buy, yP, '#b07a12', 'PURCHASE', false);
+
+    // gap between sale completion and purchase completion
+    if (sale.completion && buy.completion) {
+      const sx = x(sale.completion), px = x(buy.completion);
+      el('line', { x1: sx, x2: sx, y1: yS + 8, y2: yP - 8, stroke: '#b3402e', 'stroke-width': 1.5, 'stroke-dasharray': '5 5' });
+      const gd = dayDiff(sale.completion, buy.completion);
+      if (gd !== 0) {
+        const yy = (yS + yP) / 2 + 22;
+        el('line', { x1: sx, x2: px, y1: yy, y2: yy, stroke: '#b3402e', 'stroke-width': 1.5 });
+        for (const ex of [sx, px]) el('line', { x1: ex, x2: ex, y1: yy - 6, y2: yy + 6, stroke: '#b3402e', 'stroke-width': 1.5 });
+        const lbl = spanLabel(gd);
+        const w = textW(lbl, 13) + 12;
+        const cx = clampX((sx + px) / 2, w);
+        el('rect', { x: cx - w / 2, y: yy - 21, width: w, height: 18, rx: 4, fill: '#fff' });
+        el('text', { x: cx, y: yy - 8, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 600, fill: '#b3402e' }, lbl);
+      }
+    }
+    summarise(sale, buy);
+  }
+
+  function summarise(sale, buy) {
+    const out = [];
+    if (sale.completion) out.push(`Sale completes <b>${fmt(sale.completion)}</b>`);
+    if (buy.completion) out.push(`Purchase completes <b>${fmt(buy.completion)}</b>`);
+    if (sale.completion && buy.completion) {
+      const gd = dayDiff(sale.completion, buy.completion);
+      out.push(gd === 0 ? '<b>Both complete the same day</b>'
+        : gd > 0 ? `Sale completes <b>${spanLabel(gd)}</b> before purchase`
+        : `Purchase completes <b>${spanLabel(gd)}</b> before sale`);
+    }
+    if (sale.extEnd) out.push(`Sale extension ends <b>${fmt(sale.extEnd)}</b>`);
+    if (buy.extEnd) out.push(`Purchase extension ends <b>${fmt(buy.extEnd)}</b>`);
+    if (!out.length) out.push('Fill in the durations below to build the timeline.');
+    document.getElementById('summary').innerHTML = out.map(s => `<span>${s}</span>`).join('');
+  }
+
+  function update() { save(); draw(); }
+  window.addEventListener('resize', draw);
+  renderPanel('sale'); renderPanel('purchase'); draw();
+})();
+</script>
+</body>
+</html>
