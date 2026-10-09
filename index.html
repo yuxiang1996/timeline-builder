@@ -447,22 +447,23 @@
     row(sale, yS, '#0f6b5c', 'SALE', true);
     row(buy, yP, '#b07a12', 'PURCHASE', false);
 
-    // gap between sale completion and purchase completion
-    if (sale.completion && buy.completion) {
-      const sx = x(sale.completion), px = x(buy.completion);
-      el('line', { x1: sx, x2: sx, y1: yS + 8, y2: yP - 8, stroke: '#b3402e', 'stroke-width': 1.5, 'stroke-dasharray': '5 5' });
-      const gd = dayDiff(sale.completion, buy.completion);
-      if (gd !== 0) {
-        const yy = (yS + yP) / 2 + 22;
-        el('line', { x1: sx, x2: px, y1: yy, y2: yy, stroke: '#b3402e', 'stroke-width': 1.5 });
-        for (const ex of [sx, px]) el('line', { x1: ex, x2: ex, y1: yy - 6, y2: yy + 6, stroke: '#b3402e', 'stroke-width': 1.5 });
-        const lbl = spanLabel(gd);
-        const w = textW(lbl, 13) + 12;
-        const cx = clampX((sx + px) / 2, w);
-        el('rect', { x: cx - w / 2, y: yy - 21, width: w, height: 18, rx: 4, fill: '#fff' });
-        el('text', { x: cx, y: yy - 8, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 600, fill: '#b3402e' }, lbl);
-      }
+    // gap from a sale milestone down to purchase completion
+    function gap(from, to, yy, color, prefix) {
+      const sx = x(from), px = x(to);
+      el('line', { x1: sx, x2: sx, y1: yS + 8, y2: yP - 8, stroke: color, 'stroke-width': 1.5, 'stroke-dasharray': '5 5' });
+      const gd = dayDiff(from, to);
+      if (gd === 0) return;
+      el('line', { x1: sx, x2: px, y1: yy, y2: yy, stroke: color, 'stroke-width': 1.5 });
+      for (const ex of [sx, px]) el('line', { x1: ex, x2: ex, y1: yy - 6, y2: yy + 6, stroke: color, 'stroke-width': 1.5 });
+      const lbl = prefix + spanLabel(gd);
+      const w = textW(lbl, 13) + 12;
+      const cx = clampX((sx + px) / 2, w);
+      el('rect', { x: cx - w / 2, y: yy - 21, width: w, height: 18, rx: 4, fill: '#fff' });
+      el('text', { x: cx, y: yy - 8, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 600, fill: color }, lbl);
     }
+    const yGap = (yS + yP) / 2 - 3;
+    if (sale.completion && buy.completion) gap(sale.completion, buy.completion, yGap, '#b3402e', '');
+    if (sale.extEnd && buy.completion) gap(sale.extEnd, buy.completion, yGap + 42, '#5b4a9e', 'Extension: ');
     summarise(sale, buy);
   }
 
@@ -477,6 +478,12 @@
         : `Purchase completes <b>${spanLabel(gd)}</b> before sale`);
     }
     if (sale.extEnd) out.push(`Sale extension ends <b>${fmt(sale.extEnd)}</b>`);
+    if (sale.extEnd && buy.completion) {
+      const ed = dayDiff(buy.completion, sale.extEnd);
+      out.push(ed === 0 ? '<b>Sale extension ends the day purchase completes</b>'
+        : ed > 0 ? `Sale extension ends <b>${spanLabel(ed)}</b> after purchase completes`
+        : `Sale extension ends <b>${spanLabel(ed)}</b> before purchase completes`);
+    }
     if (buy.extEnd) out.push(`Purchase extension ends <b>${fmt(buy.extEnd)}</b>`);
     if (!out.length) out.push('Fill in the durations below to build the timeline.');
     document.getElementById('summary').innerHTML = out.map(s => `<span>${s}</span>`).join('');
