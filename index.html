@@ -81,10 +81,39 @@
 
   .note { font-size: 12px; color: var(--muted); margin-top: 18px; }
 
+  #report { display: none; }
+  @page { size: A4 landscape; margin: 8mm 10mm; }
   @media print {
-    body { background: #fff; }
-    .panels, .actions, .note { display: none; }
-    .chart-card { border: 0; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { background: #fff; font-size: 11px; }
+    .wrap { max-width: none; padding: 0; }
+    header { margin-bottom: 6px; }
+    h1 { font-size: 18px; }
+    .panels, .actions, .note, .summary { display: none; }
+    .chart-card { border: 1px solid var(--line); padding: 0; margin-bottom: 8px; break-inside: avoid; }
+    .chart-scroll { overflow: visible; }
+    #chart { width: 100% !important; height: auto !important; }
+    #report { display: block; }
+    .r-gaps { display: flex; gap: 8px; margin-bottom: 8px; }
+    .r-gap { flex: 1; border: 1px solid var(--line); border-left: 4px solid var(--gap); border-radius: 8px; padding: 6px 10px; }
+    .r-gap.e { border-left-color: #5b4a9e; }
+    .r-gap small { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+    .r-gap b { font-size: 13px; }
+    .r-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .r-card { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    .r-head { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 10px; color: #fff; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; font-size: 12px; }
+    .r-head em { font-style: normal; letter-spacing: 0; text-transform: none; font-weight: 600; opacity: .9; }
+    .r-card.sale .r-head { background: var(--sale); }
+    .r-card.purchase .r-head { background: var(--buy); }
+    .r-card table { width: 100%; border-collapse: collapse; }
+    .r-card th { text-align: left; font-size: 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; padding: 5px 10px; border-bottom: 1px solid var(--line); }
+    .r-card td { padding: 3px 10px; border-bottom: 1px solid #f0f1ef; font-size: 11.5px; }
+    .r-card td:first-child { font-weight: 600; }
+    .r-card td:nth-child(2) { white-space: nowrap; }
+    .r-card tr.ext td { font-style: italic; }
+    .r-card tr.pending td { color: #a3aaa7; }
+    .r-total { padding: 6px 10px; background: #fafaf8; font-size: 12px; }
+    .r-foot { color: var(--muted); font-size: 10px; margin: 6px 0 0; }
   }
 </style>
 </head>
@@ -102,6 +131,8 @@
     <div class="chart-scroll"><svg id="chart" role="img" aria-label="Sale and purchase timeline"></svg></div>
     <div class="summary" id="summary"></div>
   </div>
+
+  <section id="report" aria-hidden="true"></section>
 
   <div class="panels">
     <section class="panel sale" id="panel-sale"></section>
@@ -362,27 +393,48 @@
     svg.appendChild(n);
     return n;
   }
-  const textW = (s, size) => s.length * size * 0.56;
+  const FONT = getComputedStyle(document.body).fontFamily;
+  const ctx = document.createElement('canvas').getContext('2d');
+  const textW = (str, size, weight = 400) => { ctx.font = `${weight} ${size}px ${FONT}`; return ctx.measureText(str).width; };
 
-  // Push labels onto extra rows when they would overlap their neighbour.
-  function stagger(items, gap) {
-    const rows = [];
-    for (const it of items.sort((a, b) => a.x - b.x)) {
-      let r = 0;
-      while (rows[r] != null && it.x - it.w / 2 < rows[r] + gap) r++;
-      rows[r] = it.x + it.w / 2;
-      it.row = r;
+  // Lay labels out on one line: each sits as close to its point as it can,
+  // and crowded neighbours are pushed apart as a group so none overlap.
+  function spread(items, gap, lo, hi) {
+    items.sort((a, b) => a.d - b.d);
+    const clusters = [];
+    const place = c => {
+      let o = 0;
+      c.offs = c.items.map((it, k) => (o += (k ? c.items[k - 1].w / 2 + gap : 0) + it.w / 2));
+      c.width = o + c.items[c.items.length - 1].w / 2;
+      c.left = c.items.reduce((sum, it, k) => sum + it.d - c.offs[k], 0) / c.items.length;
+      c.left = Math.max(lo, Math.min(c.left, hi - c.width));
+    };
+    for (const it of items) {
+      let c = { items: [it] };
+      place(c);
+      while (clusters.length) {
+        const prev = clusters[clusters.length - 1];
+        if (prev.left + prev.width + gap <= c.left) break;
+        clusters.pop();
+        c = { items: [...prev.items, ...c.items] };
+        place(c);
+      }
+      clusters.push(c);
     }
+    for (const c of clusters) c.items.forEach((it, k) => { it.x = c.left + c.offs[k]; });
     return items;
   }
+
+  const PRINT_W = 1180;
+  let printing = false;
 
   function draw() {
     const sale = compute('sale'), buy = compute('purchase');
     const wrap = svg.parentElement;
-    const W = Math.max(760, wrap.clientWidth);
+    const W = printing ? PRINT_W : Math.max(760, wrap.clientWidth);
     const L = 156, R = 80;
-    const H = 470;
-    const yS = 150, yP = 320;
+    const H = 370;
+    const yS = 90, yP = 255;
     svg.setAttribute('width', W); svg.setAttribute('height', H);
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.innerHTML = '';
@@ -393,6 +445,7 @@
     const span = max - min;
     const x = d => L + ((d - min) / span) * (W - L - R);
     const clampX = (cx, w) => Math.min(Math.max(cx, w / 2 + 4), W - w / 2 - 4);
+    const lo = L - 40, hi = W - 6;
 
     // month grid
     let m = new Date(min.getFullYear(), min.getMonth() + 1, 1);
@@ -400,7 +453,7 @@
     const stepM = months > 18 ? 3 : months > 9 ? 2 : 1;
     while (m <= max) {
       const mx = x(m);
-      el('line', { x1: mx, x2: mx, y1: 40, y2: H - 34, stroke: '#eef0ee', 'stroke-width': 1 });
+      el('line', { x1: mx, x2: mx, y1: 20, y2: H - 34, stroke: '#eef0ee', 'stroke-width': 1 });
       el('text', { x: mx, y: H - 14, 'text-anchor': 'middle', 'font-size': 12, fill: '#9aa29f' },
         `${MONTHS[m.getMonth()]} ${String(m.getFullYear()).slice(2)}`);
       m = new Date(m.getFullYear(), m.getMonth() + stepM, 1);
@@ -422,26 +475,26 @@
         el('text', { x: sx + 52, y: y + 4, 'font-size': 12, fill: '#9aa29f' }, `→ ${data.pending}?`);
       }
       // duration labels (opposite side of milestone labels)
-      const durs = stagger(data.segments.map(s => {
-        const w = textW(s.label, 13);
-        return { x: clampX((x(s.from) + x(s.to)) / 2, w), w, s };
-      }), 6);
+      const durs = spread(data.segments.map(sg => {
+        const lbl = sg.label;
+        return { d: (x(sg.from) + x(sg.to)) / 2, w: textW(lbl, 13), sg, lbl };
+      }), 12, lo, hi);
       for (const d of durs) {
-        const ty = y - dir * (24 + d.row * 18) + (labelsAbove ? 4 : 0);
-        el('text', { x: d.x, y: ty, 'text-anchor': 'middle', 'font-size': 13, fill: color, 'font-style': d.s.dashed ? 'italic' : 'normal' }, d.s.label);
+        el('text', { x: d.x, y: labelsAbove ? y + 28 : y - 20, 'text-anchor': 'middle', 'font-size': 13, fill: color,
+          'font-style': d.sg.dashed ? 'italic' : 'normal' }, d.lbl);
       }
-      // milestones
-      const ms = stagger(data.points.map(p => {
-        const w = Math.max(textW(p.label, 13), textW(fmt(p.date), 12)) + 6;
-        return { x: clampX(x(p.date), w), px: x(p.date), w, p };
-      }), 8);
+      // milestones: name + date, joined to the dot by a leader line
+      const ms = spread(data.points.map(p => ({
+        d: x(p.date), px: x(p.date), p,
+        w: Math.max(textW(p.label, 13, 600), textW(fmt(p.date), 12)),
+      })), 14, lo, hi);
       for (const mk of ms) {
-        const off = 22 + mk.row * 38;
-        const ly = labelsAbove ? y - off - 16 : y + off + 6;
-        el('line', { x1: mk.px, x2: mk.px, y1: y, y2: labelsAbove ? ly + 20 : ly - 12, stroke: color, 'stroke-width': 1, opacity: 0.35 });
+        const nameY = labelsAbove ? y - 46 : y + 34;
+        const end = labelsAbove ? y - 26 : y + 21;
+        el('polyline', { points: `${mk.px},${y} ${mk.px},${y + dir * 10} ${mk.x},${end}`, fill: 'none', stroke: color, 'stroke-width': 1, opacity: 0.45 });
         el('circle', { cx: mk.px, cy: y, r: 6, fill: mk.p.hollow ? '#fff' : color, stroke: color, 'stroke-width': 2.5 });
-        el('text', { x: mk.x, y: ly, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 600, fill: '#1c2321' }, mk.p.label);
-        el('text', { x: mk.x, y: ly + 16, 'text-anchor': 'middle', 'font-size': 12, fill: '#6b7471' }, fmt(mk.p.date));
+        el('text', { x: mk.x, y: nameY, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 600, fill: '#1c2321' }, mk.p.label);
+        el('text', { x: mk.x, y: nameY + 16, 'text-anchor': 'middle', 'font-size': 12, fill: '#6b7471' }, fmt(mk.p.date));
       }
     }
     row(sale, yS, '#0f6b5c', 'SALE', true);
@@ -465,6 +518,7 @@
     if (sale.completion && buy.completion) gap(sale.completion, buy.completion, yGap, '#b3402e', '');
     if (sale.extEnd && buy.completion) gap(sale.extEnd, buy.completion, yGap + 42, '#5b4a9e', 'Extension: ');
     summarise(sale, buy);
+    buildReport(sale, buy);
   }
 
   function summarise(sale, buy) {
@@ -489,7 +543,47 @@
     document.getElementById('summary').innerHTML = out.map(s => `<span>${s}</span>`).join('');
   }
 
+  // ---------- Print report: both timelines side by side ----------
+  function reportCard(side, data) {
+    const s = state[side], t = TEMPLATES[s.type];
+    const names = [t.start, ...t.segs.map(g => g.to)];
+    if (s.ext.on) names.push(EXT_LABEL);
+    const rows = names.map((name, i) => {
+      const p = data.points[i], sg = i ? data.segments[i - 1] : null;
+      return `<tr class="${p ? '' : 'pending'}${name === EXT_LABEL ? ' ext' : ''}">
+        <td>${name}</td><td>${p ? fmt(p.date) : 'Not set'}</td><td>${sg ? sg.label : i ? '—' : 'Start'}</td></tr>`;
+    }).join('');
+    const total = data.completion ? `Issue OTP to completion: <b>${spanLabel(dayDiff(data.points[0].date, data.completion))}</b>` : 'Fill in every step to see the total.';
+    return `<div class="r-card ${side}">
+      <div class="r-head"><span>${side === 'sale' ? 'Sale' : 'Purchase'}</span><em>${t.label}</em></div>
+      <table><thead><tr><th>Milestone</th><th>Date</th><th>Step</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="r-total">${total}</div>
+    </div>`;
+  }
+  function buildReport(sale, buy) {
+    const gaps = [];
+    if (sale.completion && buy.completion) {
+      const gd = dayDiff(sale.completion, buy.completion);
+      gaps.push(['Completion gap', gd === 0 ? 'Both complete the same day'
+        : gd > 0 ? `Sale completes ${spanLabel(gd)} before purchase` : `Purchase completes ${spanLabel(gd)} before sale`, 'c']);
+    }
+    if (sale.extEnd && buy.completion) {
+      const ed = dayDiff(buy.completion, sale.extEnd);
+      gaps.push(['Extension vs purchase completion', ed === 0 ? 'Extension ends the day purchase completes'
+        : `Extension ends ${spanLabel(ed)} ${ed > 0 ? 'after' : 'before'} purchase completes`, 'e']);
+    }
+    document.getElementById('report').innerHTML = `
+      ${gaps.length ? `<div class="r-gaps">${gaps.map(([k, v, c]) => `<div class="r-gap ${c}"><small>${k}</small><b>${v}</b></div>`).join('')}</div>` : ''}
+      <div class="r-grid">${reportCard('sale', sale)}${reportCard('purchase', buy)}</div>
+      <p class="r-foot">Prepared ${fmt(today())}. Working days exclude weekends and Singapore public holidays. Dates are estimates.</p>`;
+  }
+
   function update() { save(); syncDates('sale'); syncDates('purchase'); draw(); }
+  // Redraw at a fixed width for print so the PDF is proportional and nothing is cut off.
+  const setPrinting = on => { if (printing !== on) { printing = on; draw(); } };
+  window.addEventListener('beforeprint', () => setPrinting(true));
+  window.addEventListener('afterprint', () => setPrinting(false));
+  matchMedia('print').addEventListener('change', e => setPrinting(e.matches));
   window.addEventListener('resize', draw);
   renderPanel('sale'); renderPanel('purchase'); update();
 })();
